@@ -1,0 +1,79 @@
+name: 'Terraform with Excel Upload'
+
+on:
+workflow_dispatch:   # Trigger manually from Actions tab
+inputs:
+excel_file:
+description: 'Upload your Excel file (name/location)'
+required: true
+type: artifact   # allows manual file upload
+
+permissions:
+contents: read
+
+jobs:
+terraform:
+runs-on: ubuntu-latest
+environment: production
+
+```
+defaults:
+  run:
+    shell: bash
+
+steps:
+- name: Checkout
+  uses: actions/checkout@v4
+
+# Download uploaded Excel file artifact
+- name: Download Excel file
+  uses: actions/download-artifact@v4
+  with:
+    name: ${{ github.event.inputs.excel_file }}
+    path: ./input/
+
+# Install dependencies for parsing Excel
+- name: Ensure Excel dependencies
+  run: pip install pandas openpyxl
+
+# Read values from Excel
+- name: Parse Excel and set variables
+  id: excel
+  run: |
+    NAME=$(python - <<EOF
+```
+
+import pandas as pd
+df = pd.read_excel("./input/${{ github.event.inputs.excel_file }}")
+print(df.loc[0,"name"])
+EOF
+)
+LOCATION=$(python - <<EOF
+import pandas as pd
+df = pd.read_excel("./input/${{ github.event.inputs.excel_file }}")
+print(df.loc[0,"location"])
+EOF
+)
+echo "name=$NAME" >> $GITHUB_OUTPUT
+echo "location=$LOCATION" >> $GITHUB_OUTPUT
+
+```
+# Setup Terraform
+- name: Setup Terraform
+  uses: hashicorp/setup-terraform@v1
+  with:
+    cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+- name: Terraform Init
+  run: terraform init
+
+- name: Terraform Format
+  run: terraform fmt -check
+
+- name: Terraform Plan
+  run: terraform plan -input=false -var="name=${{ steps.excel.outputs.name }}" -var="location=${{ steps.excel.outputs.location }}"
+
+- name: Terraform Apply
+  if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  run: terraform apply -auto-approve -input=false -var="name=${{ steps.excel.outputs.name }}" -var="location=${{ steps.excel.outputs.location }}"
+```
